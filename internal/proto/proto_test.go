@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"io"
+	"sync"
 	"testing"
 	"time"
 )
@@ -78,7 +79,7 @@ func (s *stallWriter) Write(p []byte) (int, error) {
 
 func TestSenderCoalescesMotionDuringStall(t *testing.T) {
 	w := &stallWriter{release: make(chan struct{})}
-	s := NewSender(w)
+	s := NewSender(w, false)
 
 	s.Motion(1, 1)
 	time.Sleep(20 * time.Millisecond) // writer is now blocked on the first motion
@@ -110,5 +111,64 @@ func TestSenderCoalescesMotionDuringStall(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("message %d: got %#v want %#v", i, got[i], want[i])
 		}
+	}
+}
+
+func TestWindowedSenderHoldsMotionUntilAcked(t *testing.T) {
+	var buf safeBuffer
+	s := NewSender(&buf, true)
+	for range MotionWindow {
+		s.Motion(1, 0)
+		time.Sleep(10 * time.Millisecond)
+	}
+	for range 300 {
+		s.Motion(1, 0)
+	}
+	time.Sleep(30 * time.Millisecond)
+	if got := buf.messages(t); len(got) != MotionWindow {
+		t.Fatalf("sent %d motions with no acks, want the window of %d", len(got), MotionWindow)
+	}
+	s.Send(Key{30, KeyDown}) // non-motion traffic is never held back
+	time.Sleep(10 * time.Millisecond)
+	s.Acked()
+	time.Sleep(10 * time.Millisecond)
+	s.Close()
+	got := buf.messages(t)
+	want := []Msg{Motion{1, 0}, Motion{1, 0}, Motion{300, 0}, Key{30, KeyDown}}
+	if len(got) != len(want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("message %d: got %#v want %#v", i, got[i], want[i])
+		}
+	}
+	if r := s.TakeRTTs(); len(r) != 1 {
+		t.Fatalf("want 1 round trip measured, got %d", len(r))
+	}
+}
+
+type safeBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *safeBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *safeBuffer) messages(t *testing.T) []Msg {
+	s.mu.Lock()
+	r := bufio.NewReader(bytes.NewReader(s.b.Bytes()))
+	s.mu.Unlock()
+	var out []Msg
+	for {
+		m, err := Read(r)
+		if err != nil {
+			return out
+		}
+		out = append(out, m)
 	}
 }

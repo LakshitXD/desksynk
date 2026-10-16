@@ -88,7 +88,7 @@ func (m *mac) session(addr string, cfg *tls.Config) error {
 		return err
 	}
 	c.SetDeadline(time.Time{})
-	m.out = proto.NewSender(c)
+	m.out = proto.NewSender(c, false)
 	defer m.out.Close()
 	m.out.Send(proto.Hello{Version: proto.Version})
 	logf("connected to %s", addr)
@@ -124,6 +124,7 @@ func (m *mac) handle(msg proto.Msg) {
 		if m.active {
 			m.motion(float64(msg.DX)*m.opts.speed, float64(msg.DY)*m.opts.speed)
 		}
+		m.out.Send(proto.MotionAck{})
 	case proto.ButtonEv:
 		if m.active {
 			m.button(msg.Button, msg.Down)

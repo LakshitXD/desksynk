@@ -126,6 +126,7 @@ func runServer(o serverOpts) error {
 					s.dropPeer(err.Error())
 				} else {
 					s.peer.out.Send(proto.Ping{})
+					s.logLink()
 				}
 			}
 		case <-sigs:
@@ -160,7 +161,7 @@ func acceptLoop(ln net.Listener, cfg *tls.Config, peers chan<- *peer, msgs chan<
 				return
 			}
 			tc.SetDeadline(time.Time{})
-			p := &peer{conn: tc, out: proto.NewSender(tc)}
+			p := &peer{conn: tc, out: proto.NewSender(tc, true)}
 			peers <- p
 			for {
 				tc.SetReadDeadline(time.Now().Add(peerTimeout))
@@ -180,6 +181,18 @@ func (s *server) dropPeer(why string) {
 	s.peer.conn.Close()
 	s.peer = nil
 	s.setRemote(false)
+}
+
+// logLink reports how long motion takes to reach the Mac and get applied, so
+// lag can be pinned on the network or on the Mac.
+func (s *server) logLink() {
+	r := s.peer.out.TakeRTTs()
+	if len(r) == 0 {
+		return
+	}
+	ms := func(d time.Duration) string { return fmt.Sprintf("%.1fms", float64(d.Microseconds())/1000) }
+	logf("link: %d pointer updates in 2s, round trip median %s, p95 %s, worst %s",
+		len(r), ms(r[len(r)/2]), ms(r[len(r)*95/100]), ms(r[len(r)-1]))
 }
 
 func (s *server) scanDevices() {
@@ -242,6 +255,8 @@ func (s *server) handlePeer(m proto.Msg) {
 			s.lastClip = m.Text
 			s.clip.write(m.Text)
 		}
+	case proto.MotionAck:
+		s.peer.out.Acked()
 	case proto.Ping:
 		s.peer.out.Send(proto.Pong{})
 	}

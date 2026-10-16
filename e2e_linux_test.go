@@ -84,7 +84,7 @@ func TestE2EEdgeCrossing(t *testing.T) {
 	}
 	c := tls.Client(raw, cfg)
 	defer c.Close()
-	out := proto.NewSender(c)
+	out := proto.NewSender(c, false)
 	out.Send(proto.Hello{Version: proto.Version})
 	msgs := make(chan proto.Msg, 1024)
 	go func() {
@@ -95,9 +95,12 @@ func TestE2EEdgeCrossing(t *testing.T) {
 				close(msgs)
 				return
 			}
-			if _, ok := m.(proto.Ping); ok {
+			switch m.(type) {
+			case proto.Ping:
 				out.Send(proto.Pong{})
 				continue
+			case proto.Motion:
+				out.Send(proto.MotionAck{})
 			}
 			msgs <- m
 		}

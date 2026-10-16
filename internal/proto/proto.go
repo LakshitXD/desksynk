@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-const Version = 1
+const Version = 2
 
 const maxPayload = 4 << 20
 
@@ -94,6 +94,8 @@ type (
 	Clipboard struct{ Text string }
 	Ping      struct{}
 	Pong      struct{}
+	// MotionAck tells the server one Motion has been applied.
+	MotionAck struct{}
 )
 
 func (Hello) msgType() byte     { return 1 }
@@ -106,6 +108,7 @@ func (Scroll) msgType() byte    { return 7 }
 func (Clipboard) msgType() byte { return 8 }
 func (Ping) msgType() byte      { return 9 }
 func (Pong) msgType() byte      { return 10 }
+func (MotionAck) msgType() byte { return 11 }
 
 func fracToU16(f float64) uint16 {
 	f = min(max(f, 0), 1)
@@ -141,7 +144,7 @@ func Write(w io.Writer, m Msg) error {
 			return errors.New("clipboard too large")
 		}
 		p = []byte(m.Text)
-	case Ping, Pong:
+	case Ping, Pong, MotionAck:
 	default:
 		return fmt.Errorf("unknown message %T", m)
 	}
@@ -226,6 +229,8 @@ func Read(r *bufio.Reader) (Msg, error) {
 		return Ping{}, nil
 	case 10:
 		return Pong{}, nil
+	case 11:
+		return MotionAck{}, nil
 	}
 	return nil, fmt.Errorf("unknown message type %d", hdr[0])
 }
