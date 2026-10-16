@@ -1,0 +1,12 @@
+[Unit]
+Description=desksynk server (share keyboard and mouse with the Mac)
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/desksynk server --mac-side left
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target
