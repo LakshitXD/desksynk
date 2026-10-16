@@ -14,6 +14,7 @@ func runClient(o clientOpts) error {
 	if err := loadCoreGraphics(); err != nil {
 		return err
 	}
+	preventAppNap()
 	if !axIsProcessTrusted() {
 		logf("this process lacks Accessibility permission, so macOS will drop the injected input.")
 		logf("open System Settings > Privacy & Security > Accessibility, add the app running desksynk (e.g. Terminal), then restart desksynk")
@@ -103,7 +104,11 @@ func (m *mac) session(addr string, cfg *tls.Config) error {
 		if err := m.out.Err(); err != nil {
 			return err
 		}
+		start := time.Now()
 		m.handle(msg)
+		if d := time.Since(start); d > 30*time.Millisecond {
+			logf("slow: applying %T took %v", msg, d.Round(time.Millisecond))
+		}
 	}
 }
 

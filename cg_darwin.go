@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"runtime"
 
 	"github.com/ebitengine/purego"
+	"github.com/ebitengine/purego/objc"
 )
 
 // CoreGraphics bindings through purego, so the Mac binary builds without cgo
@@ -121,4 +123,30 @@ func cursorLocation() cgPoint {
 	ev := cgEventCreate(0)
 	defer cfRelease(ev)
 	return cgEventGetLocation(ev)
+}
+
+// preventAppNap opts out of App Nap and timer coalescing. A windowless
+// process counts as idle to macOS, which then freezes it for 100-200 ms at a
+// time; to you that looks like the pointer stopping every few seconds.
+func preventAppNap() {
+	if _, err := purego.Dlopen("/System/Library/Frameworks/Foundation.framework/Foundation", purego.RTLD_NOW|purego.RTLD_GLOBAL); err != nil {
+		logf("load Foundation: %v; App Nap may throttle desksynk", err)
+		return
+	}
+	const (
+		userInitiated     = 0x00FFFFFF
+		idleSleepDisabled = 1 << 20 // leave the Mac free to sleep
+		latencyCritical   = 0xFF00000000
+	)
+	reason := []byte("forwarding keyboard and mouse input\x00")
+	str := objc.ID(objc.GetClass("NSString")).Send(objc.RegisterName("stringWithUTF8String:"), &reason[0])
+	info := objc.ID(objc.GetClass("NSProcessInfo")).Send(objc.RegisterName("processInfo"))
+	activity := info.Send(objc.RegisterName("beginActivityWithOptions:reason:"),
+		uint64(userInitiated&^idleSleepDisabled|latencyCritical), str)
+	if activity == 0 {
+		logf("could not opt out of App Nap")
+		return
+	}
+	activity.Send(objc.RegisterName("retain"))
+	runtime.KeepAlive(reason)
 }
